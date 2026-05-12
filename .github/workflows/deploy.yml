@@ -1,0 +1,27 @@
+name: Deploy para Droplet
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Deploy via SSH
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy no Droplet
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key:      ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/go-battleship
+            git pull origin main
+
+            docker compose -f docker-compose.prod.yml up --build -d
+            docker image prune -f
+
+            echo "✅ Deploy concluído em $(date)"
