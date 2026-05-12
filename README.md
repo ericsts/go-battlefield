@@ -112,3 +112,4 @@ Acesse `http://localhost:8080`, clique em **Create New Game** e envie o link par
 8. Na batalha, clique no tabuleiro inimigo para **atirar**
    - Acerto → atire novamente
    - Erro → vez do oponente
+FIM
