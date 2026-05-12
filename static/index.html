@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Battleship</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- LOBBY -->
+  <div id="screen-lobby" class="screen active">
+    <div class="card">
+      <div class="logo">⚓</div>
+      <h1>BATTLESHIP</h1>
+      <p class="subtitle">Real-time naval warfare, browser to browser.</p>
+      <button class="btn-primary btn-lg" onclick="createGame()">Create New Game</button>
+    </div>
+  </div>
+
+  <!-- CONNECTING -->
+  <div id="screen-connecting" class="screen">
+    <div class="card">
+      <div class="spinner"></div>
+      <p>Connecting to the fleet...</p>
+    </div>
+  </div>
+
+  <!-- WAITING FOR OPPONENT -->
+  <div id="screen-waiting" class="screen">
+    <div class="card">
+      <div class="logo">🔗</div>
+      <h2>Waiting for Opponent</h2>
+      <p>Send this link to your enemy:</p>
+      <div class="link-box">
+        <input id="share-link" type="text" readonly>
+        <button class="btn-secondary" onclick="copyLink()">Copy</button>
+      </div>
+      <div class="spinner" style="margin-top: 24px;"></div>
+      <p class="dim" style="margin-top: 16px;">Game starts when they join</p>
+    </div>
+  </div>
+
+  <!-- SHIP PLACEMENT -->
+  <div id="screen-placement" class="screen">
+    <div class="placement-layout">
+
+      <aside class="sidebar">
+        <h2>Place Your Ships</h2>
+        <p class="hint">Click a ship to select · Click grid to place · <kbd>R</kbd> to rotate</p>
+
+        <div id="ship-list"></div>
+
+        <div class="sidebar-actions">
+          <button class="btn-secondary" onclick="toggleRotate()">
+            <span id="rotate-label">⟳ Horizontal</span>
+          </button>
+          <button class="btn-secondary" onclick="randomPlace()">🎲 Random</button>
+          <button class="btn-secondary" onclick="clearShips()">✕ Clear</button>
+        </div>
+
+        <button class="btn-primary btn-lg" id="ready-btn" onclick="submitReady()" disabled>
+          Ready!
+        </button>
+
+        <div id="placement-status" class="placement-status"></div>
+      </aside>
+
+      <div class="board-area">
+        <div class="board-title">Your Board</div>
+        <div class="board-wrap">
+          <div class="col-labels">
+            <span></span>
+            <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span>
+            <span>F</span><span>G</span><span>H</span><span>I</span><span>J</span>
+          </div>
+          <div class="board-rows">
+            <div class="row-labels">
+              <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+              <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+            </div>
+            <div id="placement-grid" class="board"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- BATTLE -->
+  <div id="screen-battle" class="screen">
+    <div class="battle-layout">
+
+      <header class="battle-header">
+        <h1 class="game-title">⚓ BATTLESHIP</h1>
+        <div id="turn-banner" class="turn-banner"></div>
+      </header>
+
+      <div class="boards-row">
+
+        <div class="board-section">
+          <div class="board-title">Your Fleet</div>
+          <div class="board-wrap">
+            <div class="col-labels">
+              <span></span>
+              <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span>
+              <span>F</span><span>G</span><span>H</span><span>I</span><span>J</span>
+            </div>
+            <div class="board-rows">
+              <div class="row-labels">
+                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+                <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+              </div>
+              <div id="my-board" class="board"></div>
+            </div>
+          </div>
+          <div class="fleet-status" id="my-fleet-status"></div>
+        </div>
+
+        <div class="board-section">
+          <div class="board-title">Enemy Waters</div>
+          <div class="board-wrap">
+            <div class="col-labels">
+              <span></span>
+              <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span>
+              <span>F</span><span>G</span><span>H</span><span>I</span><span>J</span>
+            </div>
+            <div class="board-rows">
+              <div class="row-labels">
+                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+                <span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+              </div>
+              <div id="enemy-board" class="board board-enemy"></div>
+            </div>
+          </div>
+          <div class="fleet-status" id="enemy-fleet-status"></div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- GAME OVER -->
+  <div id="screen-game-over" class="screen">
+    <div class="card">
+      <div id="gameover-icon" class="logo"></div>
+      <h1 id="gameover-title"></h1>
+      <p id="gameover-sub"></p>
+      <button class="btn-primary btn-lg" onclick="window.location.href='/'">Play Again</button>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast"></div>
+
+  <!-- DISCONNECT OVERLAY -->
+  <div id="disconnect-overlay" class="overlay">
+    <div class="card">
+      <div class="logo">⚡</div>
+      <h2>Disconnected</h2>
+      <p id="disconnect-msg"></p>
+      <button class="btn-primary" onclick="window.location.href='/'">Go Home</button>
+    </div>
+  </div>
+
+  <script src="/static/game.js"></script>
+</body>
+</html>
