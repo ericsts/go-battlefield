@@ -10,29 +10,40 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// upgrader converte uma conexão HTTP normal em WebSocket.
+// CheckOrigin retornando true aceita conexões de qualquer origem (ok para dev/jogo local).
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// Client representa um jogador conectado via WebSocket.
 type Client struct {
 	conn     *websocket.Conn
-	playerID int
-	mu       sync.Mutex
+	playerID int        // 0 ou 1 — índice do slot na sala
+	mu       sync.Mutex // garante que apenas uma goroutine escreve na conexão por vez
 }
 
+// Send serializa v como JSON e envia pelo WebSocket do cliente.
+// O Mutex evita que duas goroutines tentem escrever ao mesmo tempo,
+// o que corromperia o stream WebSocket.
 func (c *Client) Send(v interface{}) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	defer c.mu.Unlock() // defer garante que Unlock rode mesmo se WriteJSON entrar em pânico
 	c.conn.WriteJSON(v)
 }
 
+// InMsg é a estrutura de toda mensagem recebida do cliente.
+// json.RawMessage adia o parse de Data — cada case do switch fará seu próprio Unmarshal.
 type InMsg struct {
 	Type string          `json:"type"`
 	Data json.RawMessage `json:"data,omitempty"`
 }
 
+// hub é o singleton que gerencia todas as salas ativas do servidor.
 var hub = NewHub()
 
+// wsHandler lida com a conexão WebSocket de um jogador.
+// É chamado para cada novo cliente que se conecta em /ws/<roomID>.
 func wsHandler(w http.ResponseWriter, r *http.Request) {
 	roomID := strings.TrimPrefix(r.URL.Path, "/ws/")
 	room, ok := hub.GetRoom(roomID)
@@ -41,11 +52,14 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Faz o upgrade da conexão HTTP para WebSocket.
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 
+	// Seção crítica: verifica e aloca o slot do jogador na sala.
+	// O Mutex garante que dois jogadores não ocupem o mesmo slot simultaneamente.
 	room.mu.Lock()
 	if room.closed || room.IsFull() {
 		room.mu.Unlock()
@@ -66,6 +80,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	full := room.IsFull()
 	if full && room.phase == PhaseWaiting {
+		// Ambos os jogadores conectados: avança para a fase de posicionamento.
 		room.phase = PhasePlacement
 		room.boards[0] = &Board{}
 		room.boards[1] = &Board{}
@@ -77,6 +92,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Confirma para o cliente que ele entrou na sala.
 	client.Send(map[string]interface{}{
 		"type":      "joined",
 		"player_id": client.playerID,
@@ -91,21 +107,29 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// defer agenda esta função anônima para executar quando wsHandler retornar.
+	// Isso acontece quando o loop abaixo termina (cliente desconecta ou erro de leitura).
+	// A vantagem do defer é centralizar a limpeza em um só lugar, independente de
+	// quantos pontos de retorno existam na função.
 	defer func() {
-		conn.Close()
+		conn.Close() // encerra a conexão WebSocket
+
 		room.mu.Lock()
-		room.players[slot] = nil
+		room.players[slot] = nil // libera o slot do jogador
 		wasWaiting := room.phase == PhaseWaiting
 		room.closed = true
-		opp := room.players[1-slot]
+		opp := room.players[1-slot] // captura ponteiro do oponente antes de Unlock
 		room.mu.Unlock()
 
 		hub.DeleteRoom(roomID)
+		// Notifica o oponente apenas se a partida já havia começado.
 		if !wasWaiting && opp != nil {
 			opp.Send(map[string]string{"type": "opponent_disconnected"})
 		}
 	}()
 
+	// Loop principal: lê mensagens do WebSocket até o cliente desconectar.
+	// conn.ReadJSON retorna erro quando a conexão é encerrada — o break dispara o defer.
 	for {
 		var msg InMsg
 		if err := conn.ReadJSON(&msg); err != nil {
@@ -115,6 +139,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleMsg processa uma mensagem recebida de um cliente.
+// O switch distribui para a lógica de cada tipo de mensagem.
 func handleMsg(room *Room, c *Client, msg InMsg) {
 	switch msg.Type {
 
@@ -138,6 +164,7 @@ func handleMsg(room *Room, c *Client, msg InMsg) {
 			return
 		}
 
+		// required garante que todos os 5 tipos de navio sejam enviados (sem repetição).
 		required := map[string]bool{
 			"Carrier": true, "Battleship": true, "Cruiser": true,
 			"Submarine": true, "Destroyer": true,
@@ -150,7 +177,7 @@ func handleMsg(room *Room, c *Client, msg InMsg) {
 				valid = false
 				break
 			}
-			delete(required, s.Name)
+			delete(required, s.Name) // remove para detectar duplicatas
 			if err := board.Place(PlacedShip{Name: s.Name, Size: size, X: s.X, Y: s.Y, Horizontal: s.Horizontal}); err != nil {
 				valid = false
 				break
@@ -167,7 +194,7 @@ func handleMsg(room *Room, c *Client, msg InMsg) {
 		bothReady := room.ready[0] && room.ready[1]
 		if bothReady {
 			room.phase = PhaseBattle
-			room.turn = 0
+			room.turn = 0 // jogador 0 começa
 		}
 		room.mu.Unlock()
 
@@ -196,6 +223,7 @@ func handleMsg(room *Room, c *Client, msg InMsg) {
 			c.Send(map[string]string{"type": "error", "message": "not your turn"})
 			return
 		}
+		// O tiro é aplicado no tabuleiro do OPONENTE (1 - playerID).
 		res, err := room.boards[1-c.playerID].Shoot(data.X, data.Y)
 		if err != nil {
 			room.mu.Unlock()
@@ -205,6 +233,7 @@ func handleMsg(room *Room, c *Client, msg InMsg) {
 		if res.Winner {
 			room.phase = PhaseOver
 		} else if !res.Hit {
+			// Erro na água: passa o turno. Acerto: mantém o turno do mesmo jogador.
 			room.turn = 1 - room.turn
 		}
 		opp := room.players[1-c.playerID]
@@ -212,6 +241,7 @@ func handleMsg(room *Room, c *Client, msg InMsg) {
 		oppNextTurn := !res.Winner && !res.Hit
 		room.mu.Unlock()
 
+		// Envia o resultado para quem atirou e para o oponente.
 		c.Send(map[string]interface{}{
 			"type":       "shot_result",
 			"x":          data.X,
@@ -239,6 +269,7 @@ func handleMsg(room *Room, c *Client, msg InMsg) {
 	}
 }
 
+// broadcast envia uma mensagem para todos os jogadores da sala.
 func broadcast(room *Room, v interface{}) {
 	for _, p := range room.players {
 		if p != nil {
