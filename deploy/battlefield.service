@@ -1,0 +1,13 @@
+[Unit]
+Description=go-battlefield (Battleship WebSocket server)
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/go-battlefield
+ExecStart=/opt/go-battlefield/battleship
+Environment=PORT=8082
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

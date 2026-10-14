@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 
@@ -292,6 +293,11 @@ func main() {
 		http.ServeFile(w, r, "static/index.html")
 	})
 
-	log.Println("Battleship running → http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Println("Battleship running → http://localhost:" + port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
